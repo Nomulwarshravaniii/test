@@ -1,0 +1,105 @@
+cheat=>
+import tensorflow as tf    import os
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, Flatten
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras.optimizers import Adam
+base = VGG16(   # Load the Pre-trained CNN Model
+    weights=r'vgg16_weights.h5', include_top=False, input_shape=(224,224,3)
+)      print("Pre-trained VGG16 model loaded successfully.")
+for layer in base.layers:        # ---- Freeze base model ----
+    layer.trainable = False
+train_gen = ImageDataGenerator(
+    rescale=1./255,
+    validation_split=0.2
+)
+selected_classes = ['airplanes', 'ant']
+train_data = train_gen.flow_from_directory(
+    r"caltech-101-img", target_size=(224,224),
+    batch_size=32, subset='training', classes=selected_classes
+)
+val_data = train_gen.flow_from_directory(
+    r"caltech-101-img", target_size=(224,224),
+    batch_size=32, subset='validation', classes=selected_classes
+)
+model = Sequential([     # ---- Add Classifier on top of base model ----
+    base, Flatten(), Dense(256, activation='relu'), Dropout(0.2), Dense(256, activation='relu'), Dropout(0.4), Dense(train_data.num_classes, activation='softmax')
+])
+model.compile(      # ---- Compile (train only new layers) ----
+    optimizer=Adam(), loss="categorical_crossentropy",  metrics=["accuracy"]
+)
+model.fit(train_data, validation_data=val_data, epochs=5)   # ---- Train ----
+for layer in base.layers[-4:]:     # 7. Fine tune - >Unfreeze last 4 convolutional layers
+    layer.trainable = True
+model.compile(optimizer=Adam(learning_rate=1e-5),
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+print("Fine-tuning top layers...")
+fine_tune_history = model.fit(
+    train_data, validation_data=val_data, epochs=5
+)
+# Step 8: Evaluate and Save the model
+loss, acc = model.evaluate(val_data)
+print(f"\nFinal Validation Accuracy: {acc*100:.2f}%")
+model.save("vgg16_transfer_learning_final.h5")
+print("Model saved successfully as vgg16_transfer_learning_final.h5")
+
+second=>
+import tensorflow as tf
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.optimizers import Adam
+
+base_model = VGG16(weights='vgg16.h5', input_shape=(224,224,3), include_top=False)
+for l in base_model.layers:
+    l.trainable = False
+
+data_dir = '/content/objects'
+
+train_datagen = ImageDataGenerator(validation_split=0.2, rescale=(1./255))
+train_gen = train_datagen.flow_from_directory(
+    data_dir,
+    batch_size=32,
+    target_size=(224,224),
+    subset='training',
+    class_mode='categorical',
+)
+
+val_gen = train_datagen.flow_from_directory(
+    data_dir,
+    batch_size=32,
+    target_size=(224,224),
+    subset='validation',
+    class_mode='categorical',
+)
+
+labels = train_gen.num_classes
+model = Sequential([
+    base_model,
+    Flatten(),
+    Dense(256, activation='relu'),
+    Dense(128, activation='relu'),
+    Dense(labels, activation='softmax')
+])
+
+model.compile(optimizer = Adam(learning_rate=0.001), metrics=['accuracy'], loss='categorical_crossentropy')
+history = model.fit(train_gen, validation_data=val_gen, epochs=5)
+
+for l in base_model.layers[:-4]:
+    l.trainable = True
+
+
+model.compile(optimizer = Adam(0.0001), metrics=['accuracy'], loss='categorical_crossentropy')
+history = model.fit(train_gen, validation_data=val_gen, epochs=5)
+
+print("Done")
+
+
+import matplotlib.pyplot as plt
+
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.show()
